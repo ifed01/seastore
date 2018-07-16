@@ -7,29 +7,6 @@
 #include <string>
 #include <queue>
 using namespace std::chrono_literals;
-seastar::future<> f() {
-  auto f1 = seastar::sleep(200ms).then( [] {
-    std::cout << "Hello world200:"<<pthread_self() << "\n";
-    return 200;
-  });
-
-  seastar::future<int> f2 = seastar::sleep(300ms).then([] {
-    std::cout << "Hello world300:"<<pthread_self() << "\n";
-    return 300;
-  });
-
-//  std::cout << "Hello world0:"<<pthread_self() << "\n";
-//  return seastar::when_all_succeed(f1.get0(), f2.get0()).then( [] (int a, int b) {
-  return seastar::when_all(std::move(f2), std::move(f1)).then( [] (auto t) {
-    return seastar::make_ready_future<>();
-  });
-}
-
-seastar::future<> self() {
-  auto p = pthread_self();
-  std::cout << "cpu:" << p << std::endl;
-  return seastar::make_ready_future<>();
-}
 
 thread_local bool stop_flag = false;;
 thread_local seastar::server_socket* common_listener = nullptr; 
@@ -150,7 +127,6 @@ typedef seastar::shared_ptr<StoreShard> StoreShardPtr;
 class StoreShard
 {
   std::map<int, QPtr> col_queues;
-  //bool stopping = false;
 public:
   StoreShard()
   {
@@ -163,10 +139,6 @@ public:
     if (stop_flag) {
       throw std::string("termination is in progress");
     }
-/*    if (r->name == "stop") {
-      std::cout<<"Stopping "<<this<<std::endl;
-      stopping = true;
-    }*/
     auto it = col_queues.find(r->col_id);
     if (it == col_queues.end()) {
       char buf[32];
@@ -211,69 +183,12 @@ std::cout<<"process submitting to shard="<<shard_no<<std::endl;
 };
 thread_local StoreShardPtr StoreShard::thread_shard;
 
-/*int main(int argc, char** argv) {
-  seastar::app_template app;
-  app.run(argc, argv, [] {
-        auto cpus = seastar::smp::all_cpus();
-        for(auto c : cpus) {
-          std::cout<<"cpu:"<<c<<std::endl;
-        }
-    auto f0 = seastar::smp::invoke_on_all([] {
-       return self();
-    });
-    auto f2 = seastar::smp::submit_to(2, [] {
-       return f();
-    });
-    return seastar::when_all(std::move(f0), f(), std::move(f2))
-      .then( [] (auto t) {
-        std::cout<<"all done"<<std::endl;
-        return seastar::make_ready_future<>();
-      });
-  });
-}*/
-
 seastar::future<> q_test() {
     return seastar::do_with(Q ("q"), [] (auto& q) {
       ReqPtr r1 = seastar::make_shared<Req>("first_1", 1, 2000ms);
       ReqPtr r2 = seastar::make_shared<Req>("second_2", 2, 3000ms);
       ReqPtr r3 = seastar::make_shared<Req>("third_1", 1, 1000ms);
       ReqPtr r4 = seastar::make_shared<Req>("forth_2", 2, 3000ms);
-/*
-      auto f1 = q.queue(r1).then([] (auto r) {
-        return seastar::do_with(ReqPtr(r), [] (auto& r) {
-          return r->process();
-        });
-      });
-      auto f2 = q.queue(r2).then([] (auto r) {
-        return seastar::do_with(ReqPtr(r), [] (auto& r) {
-          return r->process();
-        });
-      });
-      auto f3 = q.queue(r3).then([] (auto r) {
-        return seastar::do_with(ReqPtr(r), [] (auto& r) {
-          return r->process();
-        });
-      });
-      auto f4 = q.queue(r4).then([] (auto r) {
-        return seastar::do_with(ReqPtr(r), [] (auto& r) {
-          return r->process();
-        });
-      });
-*/
-/*      auto f1 = q.queue_and_forget(r1);
-      auto f2 = seastar::do_with(ReqPtr(r2), [&](auto& r) {
-        return q.queue(r).then([] (auto r) {
-          std::cout<<"post process for:"<<r->name.c_str()<<std::endl;
-          return seastar::sleep(5000ms).then([r] {
-            return seastar::make_ready_future<ReqPtr>(r);
-          });
-        });
-      });
-      auto f3 = q.queue_fn(r3, [] (auto& r) {
-        return r->process();
-      });
-      auto f4 = q.queue(r4);
-*/
       auto f1 = q.queue2(r1);
       auto f2 = q.queue2(r2);
       auto f3 = q.queue2(r3);
@@ -398,23 +313,6 @@ seastar::future<> ip_listen_loop() {
       return seastar::make_ready_future<>();
     });
 }
-/*seastar::future<> ip_listen_loop(int) {
-    seastar::listen_options lo;
-    lo.reuse_address = true;
-    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
-            [] (auto& listener) {
-        return seastar::keep_doing([&listener] () {
-            return listener.accept().then(
-                [&listener] (seastar::connected_socket s, seastar::socket_address a) {
-std::cout<<"accept "<<" "<<a<<std::endl;
-                    // Note we ignore, not return, the future returned by
-                    // handle_connection(), so we do not wait for one
-                    // connection to be handled before accepting the next one.
-                    handle_connection(std::move(s), std::move(a));
-                });
-        });
-    });
-}*/
 
 boost::integer_range<unsigned> effective_shards(0, 1);
 int main(int argc, char** argv) {
@@ -428,11 +326,6 @@ int main(int argc, char** argv) {
     auto f1 = seastar::smp::invoke_on_all([] {
       return ip_listen_loop();
     });
-    //auto f1 = ip_listen_loop(3);
-/*    auto f2 = seastar::smp::submit_to(2, [] {
-       return f();
-    });
-*/
     return seastar::when_all(std::move(f0), std::move(f1)).then([] (auto t) {
       std::cout<<"all done"<<std::endl;
       return seastar::make_ready_future<>();
